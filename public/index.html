@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Parking Reservation System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="nav-container">
+                <h1><i class="fas fa-parking"></i> Smart Parking IoT</h1>
+                <div class="nav-menu">
+                    <button class="nav-item active" data-tab="dashboard">Dashboard</button>
+                    <button class="nav-item" data-tab="map">Map View</button>
+                    <button class="nav-item" data-tab="parking">Parking</button>
+                    <button class="nav-item" data-tab="reservations">My Reservations</button>
+                    <button class="nav-item" data-tab="monitoring">Monitoring</button>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="main-content">
+        <!-- Dashboard Tab -->
+        <section id="dashboard" class="tab-content active">
+            <div class="dashboard-header">
+                <h2>System Overview</h2>
+                <div class="connection-status">
+                    <span id="connection-indicator" class="status-indicator offline"></span>
+                    <span id="connection-text">Connecting...</span>
+                </div>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon"><i class="fas fa-parking"></i></div>
+                    <div class="stat-info">
+                        <h3 id="total-slots">0</h3>
+                        <p>Total Slots</p>
+                    </div>
+                </div>
+                <div class="stat-card available">
+                    <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                    <div class="stat-info">
+                        <h3 id="available-slots">0</h3>
+                        <p>Available</p>
+                    </div>
+                </div>
+                <div class="stat-card occupied">
+                    <div class="stat-icon"><i class="fas fa-car"></i></div>
+                    <div class="stat-info">
+                        <h3 id="occupied-slots">0</h3>
+                        <p>Occupied</p>
+                    </div>
+                </div>
+                <div class="stat-card reserved">
+                    <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                    <div class="stat-info">
+                        <h3 id="reserved-slots">0</h3>
+                        <p>Reserved</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h3>Recent Activities</h3>
+                    <div id="activity-log" class="activity-log">
+                        <p class="no-data">No recent activities</p>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Gateway Status</h3>
+                    <div id="gateway-status" class="gateway-list">
+                        <p class="no-data">No gateways connected</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Map View Tab -->
+        <section id="map" class="tab-content">
+            <div class="map-header">
+                <h2>Find Parking Near You</h2>
+                <div class="map-controls">
+                    <button id="locate-me" class="btn btn-secondary">
+                        <i class="fas fa-location-arrow"></i> My Location
+                    </button>
+                    <button id="refresh-map" class="btn btn-secondary">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <div class="map-container">
+                <div id="parking-map" class="parking-map"></div>
+                <div class="map-legend">
+                    <h4>Legend</h4>
+                    <div class="legend-item">
+                        <span class="legend-dot available"></span>
+                        Available Slots
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot occupied"></span>
+                        Occupied Slots
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot reserved"></span>
+                        Reserved Slots
+                    </div>
+                </div>
+            </div>
+            
+            <div id="selected-location-info" class="location-info" style="display: none;">
+                <div class="location-header">
+                    <h3 id="selected-location-name">Parking Location</h3>
+                    <button id="close-location-info" class="btn btn-secondary">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div id="location-details" class="location-details">
+                    <!-- Location details will be populated here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Parking Tab -->
+        <section id="parking" class="tab-content">
+            <div class="parking-header">
+                <h2>Parking Lots</h2>
+                <button id="refresh-parking" class="btn btn-secondary">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+            
+            <div id="parking-lots" class="parking-lots-grid">
+                <!-- Parking lots will be loaded here -->
+            </div>
+
+            <div id="parking-slots" class="parking-slots-container" style="display: none;">
+                <div class="slots-header">
+                    <h3 id="selected-lot-name">Parking Slots</h3>
+                    <button id="back-to-lots" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Lots
+                    </button>
+                </div>
+                <div id="slots-grid" class="slots-grid">
+                    <!-- Parking slots will be loaded here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Reservations Tab -->
+        <section id="reservations" class="tab-content">
+            <div class="reservations-header">
+                <h2>My Reservations</h2>
+                <div class="reservations-controls">
+                    <button id="new-reservation" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> New Reservation
+                    </button>
+                    <select id="reservation-filter" class="reservation-filter">
+                        <option value="all">All Reservations</option>
+                        <option value="active" selected>Active</option>
+                        <option value="expired">Expired</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div id="reservations-list" class="reservations-list">
+                <p class="no-data">No active reservations</p>
+            </div>
+            
+            <!-- Quick Actions -->
+            <div class="quick-actions">
+                <h3>Quick Actions</h3>
+                <div class="quick-actions-grid">
+                    <button id="extend-reservation" class="btn btn-secondary" style="display: none;">
+                        <i class="fas fa-clock"></i> Extend Time
+                    </button>
+                    <button id="find-nearby" class="btn btn-secondary">
+                        <i class="fas fa-search-location"></i> Find Nearby
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Monitoring Tab -->
+        <section id="monitoring" class="tab-content">
+            <div class="monitoring-header">
+                <h2>System Monitoring</h2>
+                <div class="monitoring-controls">
+                    <select id="monitoring-timeframe">
+                        <option value="1">Last Hour</option>
+                        <option value="6">Last 6 Hours</option>
+                        <option value="24" selected>Last 24 Hours</option>
+                        <option value="168">Last Week</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="monitoring-grid">
+                <div class="card">
+                    <h3>System Logs</h3>
+                    <div id="system-logs" class="logs-container">
+                        <p class="no-data">No logs available</p>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Sensor Data</h3>
+                    <div id="sensor-charts" class="charts-container">
+                        <p class="no-data">No sensor data available</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Reservation Modal -->
+    <div id="reservation-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Make Reservation</h3>
+                <span class="close">&times;</span>
+            </div>
+            <form id="reservation-form">
+                <div class="form-group">
+                    <label for="selected-slot">Parking Slot:</label>
+                    <input type="text" id="selected-slot" readonly>
+                    <input type="hidden" id="selected-slot-id">
+                </div>
+                <div class="form-group">
+                    <label for="plate-number">License Plate Number:</label>
+                    <input type="text" id="plate-number" required placeholder="ABC-123">
+                </div>
+                <div class="form-group">
+                    <label for="user-name">Your Name:</label>
+                    <input type="text" id="user-name" placeholder="John Doe">
+                </div>
+                <div class="form-group">
+                    <label for="phone-number">Phone Number:</label>
+                    <input type="tel" id="phone-number" placeholder="+1234567890">
+                </div>
+                <div class="form-group">
+                    <label for="duration">Duration (hours):</label>
+                    <select id="duration" required>
+                        <option value="1">1 Hour</option>
+                        <option value="2" selected>2 Hours</option>
+                        <option value="4">4 Hours</option>
+                        <option value="8">8 Hours</option>
+                        <option value="24">24 Hours</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancel-reservation">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Reserve Slot</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
