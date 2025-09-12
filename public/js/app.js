@@ -3,13 +3,10 @@ class SmartParkingApp {
         this.socket = null;
         this.currentTab = 'dashboard';
         this.selectedLotId = null;
-        this.reservations = [];
-        this.parkingLots = [];
-        this.parkingSlots = [];
+        this.data = { reservations: [], parkingLots: [], parkingSlots: [] };
         this.map = null;
         this.mapMarkers = [];
         this.userLocation = null;
-        
         this.init();
     }
 
@@ -22,67 +19,39 @@ class SmartParkingApp {
 
     initSocket() {
         this.socket = io();
-        
         this.socket.on('connect', () => {
             this.updateConnectionStatus(true);
             this.showToast('Connected to server', 'success');
         });
-
         this.socket.on('disconnect', () => {
             this.updateConnectionStatus(false);
             this.showToast('Disconnected from server', 'error');
         });
-
-        this.socket.on('status_update', (data) => {
-            this.handleStatusUpdate(data);
-        });
-
-        this.socket.on('command_ack', (data) => {
-            this.handleCommandAck(data);
-        });
-
-        this.socket.on('heartbeat', (data) => {
-            this.handleHeartbeat(data);
-        });
-
-        this.socket.on('mqtt_message', (data) => {
-            this.addToActivityLog(data.topic, data.data);
-        });
-
+        this.socket.on('status_update', (data) => this.handleStatusUpdate(data));
+        this.socket.on('command_ack', (data) => this.showToast(data.message, data.success ? 'success' : 'error'));
         this.socket.on('system_log', (logEntry) => {
-            if (this.currentTab === 'monitoring') {
-                this.addLogToMonitoring(logEntry);
-            }
+            if (this.currentTab === 'monitoring') this.addLogToMonitoring(logEntry);
         });
     }
 
     initEventListeners() {
         document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                this.switchTab(e.target.dataset.tab);
-            });
+            item.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
         });
 
-        document.getElementById('refresh-parking').addEventListener('click', () => {
-            this.loadParkingLots();
-        });
+        const elements = {
+            'back-to-lots': () => this.showParkingLots(),
+            'new-reservation': () => { this.switchTab('parking'); this.showToast('Select a slot to make a reservation', 'info'); },
+            'close': () => this.hideReservationModal(),
+            'cancel-reservation': () => this.hideReservationModal(),
+            'locate-me': () => this.getUserLocation(),
+            'close-location-info': () => document.getElementById('selected-location-info').style.display = 'none',
+            'find-nearby': () => { this.switchTab('map'); setTimeout(() => this.getUserLocation(), 500); },
+        };
 
-        document.getElementById('back-to-lots').addEventListener('click', () => {
-            this.showParkingLots();
-        });
-
-        document.getElementById('new-reservation').addEventListener('click', () => {
-            // Navigate to parking tab to select a slot
-            this.switchTab('parking');
-            this.showToast('Select a slot to make a reservation', 'info');
-        });
-
-        document.querySelector('.close').addEventListener('click', () => {
-            this.hideReservationModal();
-        });
-
-        document.getElementById('cancel-reservation').addEventListener('click', () => {
-            this.hideReservationModal();
+        Object.entries(elements).forEach(([id, handler]) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', handler);
         });
 
         document.getElementById('reservation-form').addEventListener('submit', (e) => {
@@ -90,177 +59,101 @@ class SmartParkingApp {
             this.createReservation();
         });
 
+        document.getElementById('duration').addEventListener('change', (e) => {
+            const customGroup = document.getElementById('custom-duration-group');
+            customGroup.style.display = e.target.value === 'custom' ? 'block' : 'none';
+        });
+
         window.addEventListener('click', (e) => {
             const modal = document.getElementById('reservation-modal');
-            if (e.target === modal) {
-                this.hideReservationModal();
-            }
-        });
-
-        // Map controls
-        document.getElementById('locate-me').addEventListener('click', () => {
-            this.getUserLocation();
-        });
-
-        document.getElementById('refresh-map').addEventListener('click', () => {
-            this.refreshMapData();
-        });
-
-        document.getElementById('close-location-info').addEventListener('click', () => {
-            document.getElementById('selected-location-info').style.display = 'none';
-        });
-
-        // Find nearby button
-        document.getElementById('find-nearby').addEventListener('click', () => {
-            this.switchTab('map');
-            setTimeout(() => this.getUserLocation(), 500);
-        });
-
-        // Reservation filter
-        document.getElementById('reservation-filter').addEventListener('change', (e) => {
-            this.filterReservations(e.target.value);
+            if (e.target === modal) this.hideReservationModal();
         });
     }
 
     switchTab(tabName) {
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        document.querySelectorAll('.tab-content').forEach(content => {
-            content.classList.remove('active');
-        });
-
+        document.querySelectorAll('.nav-item, .tab-content').forEach(el => el.classList.remove('active'));
         document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
         document.getElementById(tabName).classList.add('active');
-
         this.currentTab = tabName;
 
-        if (tabName === 'dashboard') {
-            this.loadDashboardStats();
-        } else if (tabName === 'map') {
-            this.initMap();
-        } else if (tabName === 'parking') {
-            this.loadParkingLots();
-        } else if (tabName === 'reservations') {
-            this.loadReservations();
-        } else if (tabName === 'monitoring') {
-            this.loadMonitoringData();
-        }
+        const tabActions = {
+            'dashboard': () => this.loadDashboardStats(),
+            'map': () => this.initMap(),
+            'parking': () => this.loadParkingLots(),
+            'reservations': () => this.loadReservations('active'),
+            'monitoring': () => this.loadSystemLogs()
+        };
+
+        if (tabActions[tabName]) tabActions[tabName]();
     }
 
     updateConnectionStatus(connected) {
         const indicator = document.getElementById('connection-indicator');
         const text = document.getElementById('connection-text');
-        
-        if (connected) {
-            indicator.classList.remove('offline');
-            indicator.classList.add('online');
-            text.textContent = 'Connected';
-        } else {
-            indicator.classList.remove('online');
-            indicator.classList.add('offline');
-            text.textContent = 'Disconnected';
+        indicator.className = `status-indicator ${connected ? 'online' : 'offline'}`;
+        text.textContent = connected ? 'Connected' : 'Disconnected';
+    }
+
+    async apiCall(url, options = {}) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            return await response.json();
+        } catch (error) {
+            console.error(`API call failed for ${url}:`, error);
+            this.showToast(`Error loading data from ${url}`, 'error');
+            return null;
         }
     }
 
     async loadDashboardStats() {
-        try {
-            const response = await fetch('/api/dashboard-stats');
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            const stats = await response.json();
-            
-            document.getElementById('total-slots').textContent = stats.totalSlots || 0;
-            document.getElementById('available-slots').textContent = stats.availableSlots || 0;
-            document.getElementById('occupied-slots').textContent = stats.occupiedSlots || 0;
-            document.getElementById('reserved-slots').textContent = stats.reservedSlots || 0;
-        } catch (error) {
-            console.error('Error loading dashboard stats:', error);
-            
-            // Set default values on error
-            document.getElementById('total-slots').textContent = '0';
-            document.getElementById('available-slots').textContent = '0';
-            document.getElementById('occupied-slots').textContent = '0';
-            document.getElementById('reserved-slots').textContent = '0';
-            
-            this.showToast('Error loading dashboard stats', 'error');
+        const stats = await this.apiCall('/api/dashboard-stats');
+        if (stats) {
+            ['total-slots', 'available-slots', 'occupied-slots', 'reserved-slots'].forEach(id => {
+                const key = id.replace('-', '').replace('slots', 'Slots');
+                document.getElementById(id).textContent = stats[key] || 0;
+            });
         }
     }
 
     async loadParkingLots() {
-        try {
-            const response = await fetch('/api/parking-lots');
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            const data = await response.json();
-            this.parkingLots = Array.isArray(data) ? data : [];
-            this.renderParkingLots();
-        } catch (error) {
-            console.error('Error loading parking lots:', error);
-            this.parkingLots = [];
-            this.showToast('Error loading parking lots', 'error');
-            this.renderParkingLots();
-        }
+        this.data.parkingLots = await this.apiCall('/api/parking-lots') || [];
+        this.renderParkingLots();
     }
 
     renderParkingLots() {
         const container = document.getElementById('parking-lots');
-        if (!container) {
-            console.error('Parking lots container not found');
-            return;
-        }
-        
-        if (!this.parkingLots || this.parkingLots.length === 0) {
+        if (!this.data.parkingLots.length) {
             container.innerHTML = '<p class="no-data">No parking lots available</p>';
             return;
         }
 
-        container.innerHTML = this.parkingLots.map(lot => `
+        container.innerHTML = this.data.parkingLots.map(lot => `
             <div class="lot-card" onclick="app.showParkingSlots('${lot.id}')">
                 <div class="lot-header">
                     <div class="lot-name">${lot.name}</div>
                     <div class="availability-badge">${lot.available_slots || 0}/${lot.total_slots || 0} Available</div>
                 </div>
-                <div class="lot-info">
-                    <i class="fas fa-map-marker-alt"></i> ${lot.address}
-                </div>
+                <div class="lot-info"><i class="fas fa-map-marker-alt"></i> ${lot.address}</div>
                 <div class="availability-bar">
                     <div class="availability-fill" style="width: ${lot.total_slots ? (lot.available_slots / lot.total_slots) * 100 : 0}%"></div>
                 </div>
-                <div class="availability-text">
-                    ${lot.available_slots} of ${lot.total_slots} slots available
-                </div>
+                <div class="availability-text">${lot.available_slots} of ${lot.total_slots} slots available</div>
             </div>
         `).join('');
     }
 
     async showParkingSlots(lotId) {
         this.selectedLotId = lotId;
-        const lot = this.parkingLots.find(l => l.id === lotId);
-        
+        const lot = this.data.parkingLots.find(l => l.id === lotId);
         if (!lot) return;
 
         document.getElementById('selected-lot-name').textContent = `${lot.name} - Parking Slots`;
         document.getElementById('parking-lots').style.display = 'none';
         document.getElementById('parking-slots').style.display = 'block';
 
-        try {
-            const response = await fetch(`/api/parking-slots?lot_id=${lotId}`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            const data = await response.json();
-            this.parkingSlots = Array.isArray(data) ? data : [];
-            this.renderParkingSlots();
-        } catch (error) {
-            console.error('Error loading parking slots:', error);
-            this.parkingSlots = [];
-            this.showToast('Error loading parking slots', 'error');
-            this.renderParkingSlots();
-        }
+        this.data.parkingSlots = await this.apiCall(`/api/parking-slots?lot_id=${lotId}`) || [];
+        this.renderParkingSlots();
     }
 
     showParkingLots() {
@@ -271,17 +164,12 @@ class SmartParkingApp {
 
     renderParkingSlots() {
         const container = document.getElementById('slots-grid');
-        if (!container) {
-            console.error('Slots grid container not found');
-            return;
-        }
-        
-        if (!this.parkingSlots || this.parkingSlots.length === 0) {
+        if (!this.data.parkingSlots.length) {
             container.innerHTML = '<p class="no-data">No parking slots available</p>';
             return;
         }
 
-        container.innerHTML = this.parkingSlots.map(slot => `
+        container.innerHTML = this.data.parkingSlots.map(slot => `
             <div class="slot-card ${slot.status}" onclick="app.selectSlot('${slot.id}', '${slot.lock_id}')">
                 <div class="slot-header">
                     <div class="slot-id">${slot.lock_id}</div>
@@ -298,13 +186,11 @@ class SmartParkingApp {
     }
 
     selectSlot(slotId, lockId) {
-        const slot = this.parkingSlots.find(s => s.id === slotId);
-        
+        const slot = this.data.parkingSlots.find(s => s.id === slotId);
         if (!slot || slot.status !== 'free') {
             this.showToast('Slot is not available for reservation', 'warning');
             return;
         }
-
         document.getElementById('selected-slot').value = lockId;
         document.getElementById('selected-slot-id').value = slotId;
         this.showReservationModal();
@@ -317,108 +203,74 @@ class SmartParkingApp {
     hideReservationModal() {
         document.getElementById('reservation-modal').style.display = 'none';
         document.getElementById('reservation-form').reset();
+        document.getElementById('custom-duration-group').style.display = 'none';
     }
 
     async createReservation() {
+        const durationSelect = document.getElementById('duration');
+        let duration;
+        
+        if (durationSelect.value === 'custom') {
+            const minutes = parseInt(document.getElementById('custom-minutes').value) || 0;
+            const seconds = parseInt(document.getElementById('custom-seconds').value) || 0;
+            duration = minutes / 60 + seconds / 3600;
+        } else {
+            duration = parseInt(durationSelect.value);
+        }
+
         const reservationData = {
             slotId: document.getElementById('selected-slot-id').value,
             plateNumber: document.getElementById('plate-number').value.trim(),
             userName: document.getElementById('user-name').value.trim(),
             phoneNumber: document.getElementById('phone-number').value.trim(),
-            duration: parseInt(document.getElementById('duration').value)
+            duration
         };
 
-        // Validate required fields
-        if (!reservationData.slotId) {
-            this.showToast('Please select a parking slot', 'error');
-            return;
-        }
-        if (!reservationData.plateNumber) {
-            this.showToast('License plate number is required', 'error');
-            return;
-        }
-        if (!reservationData.duration || isNaN(reservationData.duration)) {
-            this.showToast('Please select a valid duration', 'error');
+        if (!reservationData.slotId || !reservationData.plateNumber || !duration || duration <= 0) {
+            this.showToast('Please fill in all required fields with valid values', 'error');
             return;
         }
 
-        try {
-            const response = await fetch('/api/reservations', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(reservationData)
-            });
+        const result = await this.apiCall('/api/reservations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(reservationData)
+        });
 
-            const result = await response.json();
-
-            if (response.ok) {
-                this.showToast('Reservation created successfully!', 'success');
-                this.hideReservationModal();
-                this.loadDashboardStats();
-                this.loadParkingLots(); // Refresh parking lots to show updated available slots
-                if (this.selectedLotId) {
-                    this.showParkingSlots(this.selectedLotId);
-                }
-            } else {
-                this.showToast(result.error || 'Error creating reservation', 'error');
-            }
-        } catch (error) {
-            console.error('Error creating reservation:', error);
-            this.showToast('Error creating reservation', 'error');
+        if (result?.success) {
+            this.showToast('Reservation created successfully!', 'success');
+            this.hideReservationModal();
+            this.loadDashboardStats();
+            this.loadParkingLots();
+            if (this.selectedLotId) this.showParkingSlots(this.selectedLotId);
         }
     }
 
     async loadReservations(filter = 'active') {
-        try {
-            const response = await fetch(`/api/reservations?filter=${filter}`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            const data = await response.json();
-            this.reservations = Array.isArray(data) ? data : [];
-            this.renderReservations();
-        } catch (error) {
-            console.error('Error loading reservations:', error);
-            this.reservations = [];
-            this.showToast('Error loading reservations', 'error');
-            this.renderReservations();
-        }
+        this.data.reservations = await this.apiCall(`/api/reservations?filter=${filter}`) || [];
+        this.renderReservations();
     }
 
     renderReservations() {
         const container = document.getElementById('reservations-list');
-        if (!container) {
-            console.error('Reservations list container not found');
-            return;
-        }
-        
-        if (!this.reservations || this.reservations.length === 0) {
+        if (!this.data.reservations.length) {
             container.innerHTML = '<p class="no-data">No active reservations</p>';
             return;
         }
 
-        container.innerHTML = this.reservations.map(reservation => {
-            // Check if slot is occupied (user has arrived) using slot_status
+        container.innerHTML = this.data.reservations.map(reservation => {
             const isOccupied = reservation.slot_status === 'occupied';
-            const reservationStatus = reservation.status;
-            const arriveButtonText = isOccupied ? 'Occupied' : "I'm Here";
-            const arriveButtonClass = isOccupied ? 'btn btn-secondary' : 'btn btn-primary';
-            const arriveButtonDisabled = isOccupied || reservationStatus !== 'active' ? 'disabled' : '';
-            const statusBadge = reservationStatus === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' : 
-                              reservationStatus === 'completed' ? '<span class="status-badge completed">Completed</span>' : 
-                              isOccupied ? '<span class="status-badge occupied">Occupied</span>' : 
-                              '<span class="status-badge active">Active</span>';
+            const isActive = reservation.status === 'active';
+            const statusBadge = `<span class="status-badge ${reservation.status}">${reservation.status}</span>`;
             
             return `
                 <div class="reservation-card" data-reservation-id="${reservation.id}">
                     <div class="reservation-header">
                         <div class="reservation-id">${reservation.lock_id} ${statusBadge}</div>
                         <div class="reservation-actions">
-                            ${reservationStatus === 'active' ? `
-                                <button class="${arriveButtonClass}" ${arriveButtonDisabled} onclick="app.arriveAtReservation('${reservation.id}')">
-                                    <i class="fas fa-${isOccupied ? 'check' : 'car'}"></i> ${arriveButtonText}
+                            ${isActive ? `
+                                <button class="btn ${isOccupied ? 'btn-secondary' : 'btn-primary'}" ${isOccupied ? 'disabled' : ''} onclick="app.arriveAtReservation('${reservation.id}')">
+                                    <i class="fas fa-${isOccupied ? 'check' : 'car'}"></i> ${isOccupied ? 'Occupied' : "I'm Here"}
                                 </button>
                                 <button class="btn btn-danger" onclick="app.cancelReservation('${reservation.id}')">
                                     <i class="fas fa-times"></i> Cancel
@@ -438,188 +290,49 @@ class SmartParkingApp {
     }
 
     async arriveAtReservation(reservationId) {
-        // Find and disable the button immediately
-        const reservationCard = document.querySelector(`[data-reservation-id="${reservationId}"]`);
-        const arriveButton = reservationCard?.querySelector('.btn-primary');
-        
-        if (arriveButton && !arriveButton.hasAttribute('disabled')) {
-            arriveButton.disabled = true;
-            arriveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-            arriveButton.classList.remove('btn-primary');
-            arriveButton.classList.add('btn-secondary');
-        }
-        
-        try {
-            console.log('🚗 Starting arrival process for reservation:', reservationId);
-            
-            const response = await fetch(`/api/reservations/${reservationId}/arrive`, {
-                method: 'POST'
-            });
-
-            const result = await response.json();
-            console.log('📡 Server response:', result);
-
-            if (response.ok) {
-                this.showToast(result.message || 'Lock opened! Park your vehicle now.', 'success');
-                
-                // Update button to show waiting state
-                if (arriveButton) {
-                    arriveButton.innerHTML = '<i class="fas fa-clock"></i> Waiting for vehicle...';
-                }
-                
-                // Show progress message
-                setTimeout(() => {
-                    this.showToast('Detecting vehicle... Please wait.', 'info');
-                }, 1000);
-                
-                console.log('✅ Arrival request successful');
-                
-                // Refresh data after a short delay to allow for status updates
-                setTimeout(() => {
-                    this.loadReservations();
-                    this.loadDashboardStats();
-                }, 2000);
-            } else {
-                this.showToast(result.error || 'Error opening lock', 'error');
-                console.error('❌ Arrival request failed:', result);
-                
-                // Re-enable button on error
-                if (arriveButton) {
-                    arriveButton.disabled = false;
-                    arriveButton.innerHTML = '<i class="fas fa-car"></i> I\'m Here';
-                    arriveButton.classList.remove('btn-secondary');
-                    arriveButton.classList.add('btn-primary');
-                }
-            }
-        } catch (error) {
-            console.error('❌ Error arriving at reservation:', error);
-            this.showToast('Error opening lock', 'error');
-            
-            // Re-enable button on error
-            if (arriveButton) {
-                arriveButton.disabled = false;
-                arriveButton.innerHTML = '<i class="fas fa-car"></i> I\'m Here';
-                arriveButton.classList.remove('btn-secondary');
-                arriveButton.classList.add('btn-primary');
-            }
+        const result = await this.apiCall(`/api/reservations/${reservationId}/arrive`, { method: 'POST' });
+        if (result?.success) {
+            this.showToast(result.message || 'Lock opened! Park your vehicle now.', 'success');
+            setTimeout(() => {
+                this.loadReservations('active');
+                this.loadDashboardStats();
+                this.loadParkingLots();
+            }, 2000);
         }
     }
 
     async cancelReservation(reservationId) {
-        if (!confirm('Are you sure you want to cancel this reservation?')) {
-            return;
+        if (!confirm('Are you sure you want to cancel this reservation?')) return;
+        
+        const result = await this.apiCall(`/api/reservations/${reservationId}`, { method: 'DELETE' });
+        if (result?.success) {
+            this.showToast('Reservation cancelled successfully', 'success');
+            this.loadReservations('active');
+            this.loadDashboardStats();
+            this.loadParkingLots();
         }
-
-        try {
-            const response = await fetch(`/api/reservations/${reservationId}`, {
-                method: 'DELETE'
-            });
-
-            const result = await response.json();
-
-            if (response.ok) {
-                this.showToast('Reservation cancelled successfully', 'success');
-                this.loadReservations();
-                this.loadDashboardStats();
-            } else {
-                this.showToast(result.error || 'Error cancelling reservation', 'error');
-            }
-        } catch (error) {
-            console.error('Error cancelling reservation:', error);
-            this.showToast('Error cancelling reservation', 'error');
-        }
-    }
-
-    loadMonitoringData() {
-        this.loadSystemLogs();
-        this.loadSensorData();
     }
 
     async loadSystemLogs() {
-        try {
-            const response = await fetch('/api/system-logs?limit=50');
-            const logs = await response.json();
-            
-            const logsContainer = document.getElementById('system-logs');
-            
-            if (logs.length === 0) {
-                logsContainer.innerHTML = '<p class="no-data">No system logs available</p>';
-                return;
-            }
-
-            logsContainer.innerHTML = logs.map(log => `
-                <div class="log-item ${log.level}">
-                    <div class="time">${new Date(log.timestamp).toLocaleString()}</div>
-                    <div><strong>${log.type}:</strong> ${log.message}</div>
-                </div>
-            `).join('');
-        } catch (error) {
-            console.error('Error loading system logs:', error);
-            document.getElementById('system-logs').innerHTML = '<p class="no-data">Error loading system logs</p>';
+        const logs = await this.apiCall('/api/system-logs?limit=50') || [];
+        const container = document.getElementById('system-logs');
+        
+        if (!logs.length) {
+            container.innerHTML = '<p class="no-data">No system logs available</p>';
+            return;
         }
-    }
 
-    async loadSensorData() {
-        try {
-            const response = await fetch('/api/sensor-data?hours=24');
-            const sensorData = await response.json();
-            
-            const chartsContainer = document.getElementById('sensor-charts');
-            
-            if (sensorData.length === 0) {
-                chartsContainer.innerHTML = '<p class="no-data">No sensor data available</p>';
-                return;
-            }
-
-            // Group sensor data by lock and type
-            const groupedData = {};
-            sensorData.forEach(reading => {
-                if (!groupedData[reading.lock_id]) {
-                    groupedData[reading.lock_id] = { battery: [], signal: [] };
-                }
-                if (groupedData[reading.lock_id][reading.sensor_type]) {
-                    groupedData[reading.lock_id][reading.sensor_type].push(reading);
-                }
-            });
-
-            let chartsHtml = '';
-            Object.keys(groupedData).forEach(lockId => {
-                const lockData = groupedData[lockId];
-                const latestBattery = lockData.battery[0]?.value || 0;
-                const latestSignal = lockData.signal[0]?.value || 0;
-                
-                chartsHtml += `
-                    <div class="sensor-chart">
-                        <h4>${lockId}</h4>
-                        <div class="sensor-reading">
-                            <i class="fas fa-battery-half"></i> Battery: ${latestBattery}%
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${latestBattery}%"></div>
-                            </div>
-                        </div>
-                        <div class="sensor-reading">
-                            <i class="fas fa-signal"></i> Signal: ${latestSignal}%
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${latestSignal}%"></div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            chartsContainer.innerHTML = chartsHtml;
-        } catch (error) {
-            console.error('Error loading sensor data:', error);
-            document.getElementById('sensor-charts').innerHTML = '<p class="no-data">Error loading sensor data</p>';
-        }
+        container.innerHTML = logs.map(log => `
+            <div class="log-item ${log.level}">
+                <div class="time">${new Date(log.timestamp).toLocaleString()}</div>
+                <div><strong>${log.type}:</strong> ${log.message}</div>
+            </div>
+        `).join('');
     }
 
     addLogToMonitoring(logEntry) {
-        const logsContainer = document.getElementById('system-logs');
-        
-        if (logsContainer.innerHTML.includes('No system logs available')) {
-            logsContainer.innerHTML = '';
-        }
+        const container = document.getElementById('system-logs');
+        if (container.innerHTML.includes('No system logs available')) container.innerHTML = '';
 
         const logHtml = `
             <div class="log-item ${logEntry.level}">
@@ -628,99 +341,19 @@ class SmartParkingApp {
             </div>
         `;
 
-        logsContainer.insertAdjacentHTML('afterbegin', logHtml);
-
-        // Keep only last 50 logs
-        const logs = logsContainer.querySelectorAll('.log-item');
-        if (logs.length > 50) {
-            logs[logs.length - 1].remove();
-        }
+        container.insertAdjacentHTML('afterbegin', logHtml);
+        const logs = container.querySelectorAll('.log-item');
+        if (logs.length > 50) logs[logs.length - 1].remove();
     }
 
     handleStatusUpdate(data) {
-        console.log('📡 Real-time status update received:', data);
-        this.addToActivityLog('Status Update', `${data.lockId}: ${data.status}`, 'info');
+        if (data.status === 'occupied') this.showToast(`🚗 Vehicle detected in ${data.lockId}!`, 'success');
+        else if (data.status === 'reserved') this.showToast(`🔒 ${data.lockId} reserved successfully`, 'info');
         
-        // Show toast for important status changes
-        if (data.status === 'occupied') {
-            this.showToast(`🚗 Vehicle detected in ${data.lockId}!`, 'success');
-        } else if (data.status === 'reserved') {
-            this.showToast(`🔒 ${data.lockId} reserved successfully`, 'info');
-        }
-        
-        if (this.currentTab === 'dashboard') {
-            this.loadDashboardStats();
-        }
-        
-        if (this.currentTab === 'parking' && this.selectedLotId) {
-            this.showParkingSlots(this.selectedLotId);
-        }
-        
-        // Update monitoring data if on that tab
-        if (this.currentTab === 'monitoring') {
-            this.loadSensorData();
-        }
-    }
-
-    handleCommandAck(data) {
-        console.log('Command acknowledgment:', data);
-        const status = data.success ? 'success' : 'error';
-        this.showToast(data.message, status);
-        this.addToActivityLog('Command Response', data.message, status);
-    }
-
-    handleHeartbeat(data) {
-        console.log('Gateway heartbeat:', data);
-        this.updateGatewayStatus(data);
-    }
-
-    updateGatewayStatus(heartbeat) {
-        const container = document.getElementById('gateway-status');
-        let gatewayList = container.innerHTML;
-        
-        if (gatewayList.includes('No gateways connected')) {
-            container.innerHTML = '';
-        }
-
-        const existingGateway = container.querySelector(`[data-gateway="${heartbeat.gatewayId}"]`);
-        
-        const gatewayHtml = `
-            <div class="gateway-item" data-gateway="${heartbeat.gatewayId}">
-                <div>
-                    <strong>${heartbeat.gatewayId}</strong><br>
-                    <small>${heartbeat.locksCount} locks</small>
-                </div>
-                <div class="gateway-status-badge online">Online</div>
-            </div>
-        `;
-
-        if (existingGateway) {
-            existingGateway.outerHTML = gatewayHtml;
-        } else {
-            container.innerHTML += gatewayHtml;
-        }
-    }
-
-    addToActivityLog(type, message, _level = 'info') {
-        const container = document.getElementById('activity-log');
-        
-        if (container.innerHTML.includes('No recent activities')) {
-            container.innerHTML = '';
-        }
-
-        const timestamp = new Date().toLocaleTimeString();
-        const activityHtml = `
-            <div class="activity-item">
-                <div class="time">${timestamp}</div>
-                <div><strong>${type}:</strong> ${message}</div>
-            </div>
-        `;
-
-        container.insertAdjacentHTML('afterbegin', activityHtml);
-
-        const activities = container.querySelectorAll('.activity-item');
-        if (activities.length > 10) {
-            activities[activities.length - 1].remove();
+        if (this.currentTab === 'dashboard') this.loadDashboardStats();
+        if (this.currentTab === 'parking') {
+            if (this.selectedLotId) this.showParkingSlots(this.selectedLotId);
+            else this.loadParkingLots();
         }
     }
 
@@ -729,131 +362,70 @@ class SmartParkingApp {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         toast.textContent = message;
-        
         container.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.remove();
-        }, 5000);
+        setTimeout(() => toast.remove(), 5000);
     }
 
-    // Map functionality
     initMap() {
         if (!this.map) {
-            // Default location - Brignole, Genova
-            const defaultLocation = [44.4056, 8.9463]; // Brignole, Genova
-            
-            this.map = L.map('parking-map', {
-                zoomControl: true,
-                scrollWheelZoom: true,
-                touchZoom: true
-            }).setView(defaultLocation, 13);
-
-            // Add OpenStreetMap tiles
+            this.map = L.map('parking-map').setView([44.4056, 8.9463], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 18
             }).addTo(this.map);
-
-            // Add click event to close location info when clicking on map
-            this.map.on('click', () => {
-                document.getElementById('selected-location-info').style.display = 'none';
-            });
+            this.map.on('click', () => document.getElementById('selected-location-info').style.display = 'none');
         }
-        
-        // Load parking lots onto the map
-        setTimeout(() => {
-            this.loadParkingLotsOnMap();
-        }, 500);
+        setTimeout(() => this.loadParkingLotsOnMap(), 500);
     }
 
     async loadParkingLotsOnMap() {
-        try {
-            await this.loadParkingLots();
-            this.clearMapMarkers();
-            
-            this.parkingLots.forEach(lot => {
-                this.addParkingLotToMap(lot);
-            });
-            
-            if (this.parkingLots.length > 0 && !this.userLocation) {
-                // Center map on first parking lot if no user location
-                const firstLot = this.parkingLots[0];
-                if (firstLot.latitude && firstLot.longitude) {
-                    this.map.setView([firstLot.latitude, firstLot.longitude], 13);
-                }
-            }
-        } catch (error) {
-            console.error('Error loading parking lots on map:', error);
-            this.showToast('Error loading map data', 'error');
-        }
-    }
-
-    addParkingLotToMap(lot) {
-        // Use default coordinates if not provided - Brignole, Genova area
-        const lat = lot.latitude || 44.4056 + (Math.random() - 0.5) * 0.01;
-        const lng = lot.longitude || 8.9463 + (Math.random() - 0.5) * 0.01;
+        await this.loadParkingLots();
+        this.clearMapMarkers();
         
-        // Determine marker color based on availability
-        let markerClass = 'available';
-        if (lot.available_slots === 0) {
-            markerClass = 'occupied';
-        } else if (lot.available_slots < lot.total_slots * 0.3) {
-            markerClass = 'reserved';
-        }
+        this.data.parkingLots.forEach(lot => {
+            const lat = lot.latitude || 44.4056 + (Math.random() - 0.5) * 0.01;
+            const lng = lot.longitude || 8.9463 + (Math.random() - 0.5) * 0.01;
+            
+            let markerClass = 'available';
+            if (lot.available_slots === 0) markerClass = 'occupied';
+            else if (lot.available_slots < lot.total_slots * 0.3) markerClass = 'reserved';
 
-        // Create custom marker
-        const markerHtml = `<div class="custom-marker ${markerClass}"></div>`;
-        const customMarker = L.divIcon({
-            html: markerHtml,
-            className: 'custom-div-icon',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
+            const marker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    html: `<div class="custom-marker ${markerClass}"></div>`,
+                    className: 'custom-div-icon',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                })
+            }).addTo(this.map)
+            .bindPopup(`
+                <div class="marker-popup">
+                    <h4>${lot.name}</h4>
+                    <p><i class="fas fa-map-marker-alt"></i> ${lot.address}</p>
+                    <p><i class="fas fa-parking"></i> ${lot.available_slots}/${lot.total_slots} available</p>
+                    <button class="btn btn-primary" onclick="app.viewParkingLot('${lot.id}')">View Slots</button>
+                </div>
+            `).on('click', () => this.showLocationInfo(lot));
+
+            this.mapMarkers.push(marker);
         });
 
-        const marker = L.marker([lat, lng], { icon: customMarker })
-            .addTo(this.map)
-            .bindPopup(this.createMarkerPopup(lot))
-            .on('click', () => {
-                this.showLocationInfo(lot);
-            });
-
-        this.mapMarkers.push(marker);
-    }
-
-    createMarkerPopup(lot) {
-        return `
-            <div class="marker-popup">
-                <h4>${lot.name}</h4>
-                <p><i class="fas fa-map-marker-alt"></i> ${lot.address}</p>
-                <p><i class="fas fa-parking"></i> ${lot.available_slots}/${lot.total_slots} available</p>
-                <button class="btn btn-primary" onclick="app.viewParkingLot('${lot.id}')">
-                    View Slots
-                </button>
-            </div>
-        `;
+        if (this.data.parkingLots.length > 0 && !this.userLocation) {
+            const firstLot = this.data.parkingLots[0];
+            if (firstLot.latitude && firstLot.longitude) {
+                this.map.setView([firstLot.latitude, firstLot.longitude], 13);
+            }
+        }
     }
 
     showLocationInfo(lot) {
         const infoElement = document.getElementById('selected-location-info');
-        const nameElement = document.getElementById('selected-location-name');
-        const detailsElement = document.getElementById('location-details');
+        document.getElementById('selected-location-name').textContent = lot.name;
         
-        nameElement.textContent = lot.name;
-        
-        detailsElement.innerHTML = `
-            <div class="location-detail">
-                <strong>Address:</strong>
-                <span>${lot.address}</span>
-            </div>
-            <div class="location-detail">
-                <strong>Available Slots:</strong>
-                <span>${lot.available_slots}/${lot.total_slots}</span>
-            </div>
-            <div class="location-detail">
-                <strong>Occupancy:</strong>
-                <span>${Math.round((1 - lot.available_slots / lot.total_slots) * 100)}%</span>
-            </div>
+        document.getElementById('location-details').innerHTML = `
+            <div class="location-detail"><strong>Address:</strong> <span>${lot.address}</span></div>
+            <div class="location-detail"><strong>Available Slots:</strong> <span>${lot.available_slots}/${lot.total_slots}</span></div>
+            <div class="location-detail"><strong>Occupancy:</strong> <span>${Math.round((1 - lot.available_slots / lot.total_slots) * 100)}%</span></div>
             <div class="location-actions">
                 <button class="btn btn-primary" onclick="app.viewParkingLot('${lot.id}')">
                     <i class="fas fa-eye"></i> View Slots
@@ -869,81 +441,53 @@ class SmartParkingApp {
 
     viewParkingLot(lotId) {
         this.switchTab('parking');
-        setTimeout(() => {
-            this.showParkingSlots(lotId);
-        }, 300);
+        setTimeout(() => this.showParkingSlots(lotId), 300);
     }
 
     getDirections(lat, lng) {
-        if (this.userLocation) {
-            const url = `https://www.google.com/maps/dir/${this.userLocation.lat},${this.userLocation.lng}/${lat},${lng}`;
-            window.open(url, '_blank');
-        } else {
-            const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-            window.open(url, '_blank');
-            this.showToast('Location opened in Google Maps', 'info');
-        }
+        const url = this.userLocation 
+            ? `https://www.google.com/maps/dir/${this.userLocation.lat},${this.userLocation.lng}/${lat},${lng}`
+            : `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+        window.open(url, '_blank');
+        this.showToast('Location opened in Google Maps', 'info');
     }
 
     clearMapMarkers() {
-        this.mapMarkers.forEach(marker => {
-            this.map.removeLayer(marker);
-        });
+        this.mapMarkers.forEach(marker => this.map.removeLayer(marker));
         this.mapMarkers = [];
     }
 
     getUserLocation() {
-        if (navigator.geolocation) {
-            this.showToast('Getting your location...', 'info');
-            
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    this.userLocation = {
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude
-                    };
-                    
-                    // Center map on user location
-                    this.map.setView([this.userLocation.lat, this.userLocation.lng], 15);
-                    
-                    // Add user location marker
-                    const userMarker = L.marker([this.userLocation.lat, this.userLocation.lng], {
-                        icon: L.divIcon({
-                            html: '<div style="background: #667eea; border: 3px solid white; border-radius: 50%; width: 15px; height: 15px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);"></div>',
-                            className: 'user-location-marker',
-                            iconSize: [15, 15],
-                            iconAnchor: [7.5, 7.5]
-                        })
-                    }).addTo(this.map).bindPopup('Your Location');
-                    
-                    this.mapMarkers.push(userMarker);
-                    this.showToast('Location found!', 'success');
-                },
-                (error) => {
-                    console.error('Error getting location:', error);
-                    this.showToast('Could not get your location', 'error');
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 300000
-                }
-            );
-        } else {
+        if (!navigator.geolocation) {
             this.showToast('Geolocation is not supported by this browser', 'error');
+            return;
         }
-    }
 
-    refreshMapData() {
-        this.showToast('Refreshing map data...', 'info');
-        this.loadParkingLotsOnMap();
-    }
-
-    // Enhanced reservation filtering
-    filterReservations(filter) {
-        this.loadReservations(filter);
-        const filterText = filter === 'all' ? 'all' : filter;
-        this.showToast(`Showing ${filterText} reservations`, 'info');
+        this.showToast('Getting your location...', 'info');
+        
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                this.userLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
+                this.map.setView([this.userLocation.lat, this.userLocation.lng], 15);
+                
+                const userMarker = L.marker([this.userLocation.lat, this.userLocation.lng], {
+                    icon: L.divIcon({
+                        html: '<div style="background: #667eea; border: 3px solid white; border-radius: 50%; width: 15px; height: 15px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);"></div>',
+                        className: 'user-location-marker',
+                        iconSize: [15, 15],
+                        iconAnchor: [7.5, 7.5]
+                    })
+                }).addTo(this.map).bindPopup('Your Location');
+                
+                this.mapMarkers.push(userMarker);
+                this.showToast('Location found!', 'success');
+            },
+            (error) => {
+                console.error('Error getting location:', error);
+                this.showToast('Could not get your location', 'error');
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+        );
     }
 }
 

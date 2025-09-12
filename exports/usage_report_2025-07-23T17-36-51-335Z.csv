@@ -1,7 +1,0 @@
-lock_id,lot_name,status,battery_level,signal_strength,total_reservations,last_reservation,avg_duration_hours
-lock_gateway_001_1,Downtown Parking,free,85,92,0,,
-lock_gateway_001_2,Downtown Parking,free,78,88,0,,
-lock_gateway_001_3,Downtown Parking,free,91,95,0,,
-lock_gateway_002_1,Mall Parking,free,82,87,0,,
-lock_gateway_002_2,Mall Parking,free,89,91,0,,
-lock_gateway_002_3,Mall Parking,free,76,84,0,,

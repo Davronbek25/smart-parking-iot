@@ -33,10 +33,10 @@ A comprehensive IoT parking reservation system with simulated locks and gateways
 - **System Monitoring**: Logs and sensor data visualization
 
 ### Data Storage & Visualization
-- **SQLite Database**: Persistent storage for all system data
+- **In-Memory Storage**: Real-time data storage during runtime
 - **Real-time Charts**: Sensor data visualization
-- **Usage Reports**: Parking lot utilization analytics
-- **Export Tools**: Data download in multiple formats
+- **Usage Reports**: Basic parking lot utilization analytics
+- **Future**: Persistent database storage planned
 
 ## 📋 Requirements
 
@@ -48,15 +48,15 @@ A comprehensive IoT parking reservation system with simulated locks and gateways
 
 ### Automatic Setup (Recommended)
 
-**For Linux/macOS:**
 ```bash
-./start.sh
+# Install dependencies
+npm install
+
+# Start all components at once
+npm run start-system
 ```
 
-**For Windows:**
-```cmd
-start.bat
-```
+This will automatically start the MQTT broker, web server, and two gateway simulators.
 
 ### Manual Setup
 If you prefer to start components individually:
@@ -68,9 +68,8 @@ npm install
 # 2. Start MQTT broker (Terminal 1)
 npm run broker
 
-# 3. Start web server (Terminal 2) 
-npm run start-windows    # For Windows (uses memory DB)
-npm start                # For Linux/macOS (uses SQLite)
+# 3. Start web server (Terminal 2)
+npm start
 
 # 4. Start gateway simulators (Terminals 3 & 4)
 npm run start-gateway gateway_001
@@ -120,16 +119,7 @@ Access the dashboard at: **http://localhost:3000**
 6. The system will detect occupancy
 
 ### Data Export
-```bash
-# Export sensor data
-npm run export-data sensor-data 2024-01-01 2024-12-31 csv
-
-# Export reservation history
-npm run export-data reservations json
-
-# Export usage report
-npm run export-data usage-report csv
-```
+Data export functionality is planned for future releases. Currently, data is stored in memory and can be accessed through the web dashboard's monitoring tab.
 
 ## 🏗️ Architecture
 
@@ -194,20 +184,14 @@ npm run export-data usage-report csv
 smart-parking-iot/
 ├── server.js              # Main web server
 ├── mqtt-broker.js          # MQTT message broker
-├── data-export.js          # Data export utilities
 ├── package.json            # Dependencies and scripts
-├── .env                    # Environment configuration
-├── start.bat              # Windows startup script
-├── start.sh               # Linux startup script
 ├── simulators/
 │   ├── gateway.js         # Gateway simulator
 │   └── lock.js            # Lock simulator with sensors
-├── public/
-│   ├── index.html         # Web dashboard
-│   ├── css/style.css      # Styling
-│   └── js/app.js          # Frontend JavaScript
-├── data/                  # SQLite database
-└── exports/               # Data export files
+└── public/
+    ├── index.html         # Web dashboard
+    ├── css/style.css      # Styling
+    └── js/app.js          # Frontend JavaScript
 ```
 
 ### Adding New Features
@@ -219,12 +203,12 @@ smart-parking-iot/
 
 ### Testing
 ```bash
-# Run tests (when implemented)
-npm test
-
 # Manual testing
 node simulators/lock.js test_lock_001 gateway_test
 node simulators/gateway.js gateway_test
+
+# Development with auto-restart
+npm run dev
 ```
 
 ## 🐛 Troubleshooting
@@ -245,10 +229,10 @@ netstat -ano | findstr :3000
 - Check firewall settings
 - Verify port 1883 is available
 
-**Database Issues**
-- Delete `data/parking.db` to reset (Linux only)
-- Check file permissions
-- **Windows SQLite3 Error**: Use `start.bat` which automatically uses the Windows-compatible in-memory database
+**Memory Storage Issues**
+- Restart the server to reset all data
+- Data is stored in memory and will be lost on restart
+- For persistent storage, database integration is planned
 
 **WebSocket Connection Failed**
 - Refresh browser page

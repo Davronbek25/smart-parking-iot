@@ -182,11 +182,6 @@ body {
     font-weight: 500;
 }
 
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 1.5rem;
-}
 
 .card {
     background: rgba(255, 255, 255, 0.95);
@@ -203,12 +198,12 @@ body {
     font-weight: 600;
 }
 
-.activity-log, .gateway-list, .logs-container {
+.gateway-list, .logs-container {
     max-height: 300px;
     overflow-y: auto;
 }
 
-.activity-item, .gateway-item, .log-item {
+.gateway-item, .log-item {
     padding: 0.75rem;
     border-left: 4px solid #667eea;
     background: rgba(102, 126, 234, 0.05);
@@ -216,7 +211,7 @@ body {
     border-radius: 0 8px 8px 0;
 }
 
-.activity-item .time, .log-item .time {
+.log-item .time {
     font-size: 0.875rem;
     color: #4a5568;
     margin-bottom: 0.25rem;
@@ -313,6 +308,11 @@ body {
     display: flex;
     gap: 1rem;
     align-items: center;
+}
+
+#back-to-lots {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
 }
 
 .btn {
@@ -624,9 +624,25 @@ body {
     margin-top: 1.5rem;
 }
 
+.custom-duration-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.custom-duration-inputs input {
+    width: 80px !important;
+    text-align: center;
+}
+
+.custom-duration-inputs span {
+    color: #4a5568;
+    font-size: 0.9rem;
+}
+
 .no-data {
     text-align: center;
-    color: #4a5568;
+    color: #fffffff2;
     font-style: italic;
     padding: 2rem;
 }
