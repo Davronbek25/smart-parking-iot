@@ -1,5 +1,5 @@
 const mqtt = require('mqtt');
-const { v4: uuidv4 } = require('uuid');
+const ParkingLock = require('./lock');
 require('dotenv').config();
 
 class Gateway {
@@ -9,7 +9,7 @@ class Gateway {
         this.locks = new Map();
         this.isConnected = false;
         this.heartbeatInterval = null;
-        
+
         this.topics = {
             upLink: `/${gatewayId}/up_link`,
             downLink: `/${gatewayId}/down_link`,
@@ -65,18 +65,15 @@ class Gateway {
 
     initializeLocks() {
         const lockIds = [`lock_${this.gatewayId}_1`, `lock_${this.gatewayId}_2`, `lock_${this.gatewayId}_3`];
-        
+
         lockIds.forEach(lockId => {
-            this.locks.set(lockId, {
-                id: lockId,
-                status: 'free',
-                batteryLevel: Math.floor(Math.random() * 30) + 70,
-                signalStrength: Math.floor(Math.random() * 20) + 80,
-                lastUpdate: new Date().toISOString(),
-                armPosition: 'down',
-                vehicleDetected: false,
-                reservation: null
+            const lock = new ParkingLock(lockId, this.gatewayId);
+
+            lock.on('statusChanged', (status) => {
+                this.publishLockStatus(lockId);
             });
+
+            this.locks.set(lockId, lock);
         });
 
         console.log(`[Gateway ${this.gatewayId}] Initialized ${lockIds.length} locks`);
@@ -98,75 +95,18 @@ class Gateway {
 
     processCommand(command) {
         const { commandId, lockId, action, data } = command;
-        
+
         if (!this.locks.has(lockId)) {
             this.sendAcknowledgment(commandId, false, 'Lock not found');
             return;
         }
 
         const lock = this.locks.get(lockId);
-        let success = false;
-        let message = '';
+        const result = lock.processCommand({ action, data });
 
-        switch (action) {
-            case 'reserve':
-                if (lock.status === 'free') {
-                    lock.status = 'reserved';
-                    lock.armPosition = 'up';
-                    lock.reservation = data;
-                    lock.lastUpdate = new Date().toISOString();
-                    success = true;
-                    message = 'Lock reserved successfully';
-                } else {
-                    message = `Lock is currently ${lock.status}`;
-                }
-                break;
+        this.sendAcknowledgment(commandId, result.success, result.message);
 
-            case 'release':
-                if (lock.status === 'reserved' || lock.status === 'occupied') {
-                    lock.status = 'free';
-                    lock.armPosition = 'down';
-                    lock.reservation = null;
-                    lock.vehicleDetected = false;
-                    lock.lastUpdate = new Date().toISOString();
-                    success = true;
-                    message = 'Lock released successfully';
-                } else {
-                    message = `Lock is already ${lock.status}`;
-                }
-                break;
-
-            case 'open':
-                if (lock.status === 'reserved') {
-                    lock.armPosition = 'down';
-                    lock.lastUpdate = new Date().toISOString();
-                    success = true;
-                    message = 'Lock opened for parking';
-                    
-                    setTimeout(() => {
-                        if (Math.random() > 0.3) {
-                            lock.vehicleDetected = true;
-                            lock.status = 'occupied';
-                            this.publishLockStatus(lockId);
-                        }
-                    }, 5000);
-                } else {
-                    message = `Cannot open lock in ${lock.status} state`;
-                }
-                break;
-
-            case 'status':
-                success = true;
-                message = 'Status retrieved successfully';
-                break;
-
-            default:
-                message = 'Unknown command';
-        }
-
-        this.sendAcknowledgment(commandId, success, message);
-        
-        if (success && action !== 'status') {
+        if (result.success && action !== 'status') {
             this.publishLockStatus(lockId);
         }
     }
@@ -190,14 +130,7 @@ class Gateway {
         const lock = this.locks.get(lockId);
         const statusUpdate = {
             gatewayId: this.gatewayId,
-            lockId: lockId,
-            status: lock.status,
-            batteryLevel: lock.batteryLevel,
-            signalStrength: lock.signalStrength,
-            armPosition: lock.armPosition,
-            vehicleDetected: lock.vehicleDetected,
-            reservation: lock.reservation,
-            timestamp: new Date().toISOString()
+            ...lock.getStatus()
         };
 
         this.client.publish(this.topics.upLink, JSON.stringify(statusUpdate));
@@ -223,28 +156,10 @@ class Gateway {
 
             this.client.publish(this.topics.heartbeat, JSON.stringify(heartbeat));
             console.log(`[Gateway ${this.gatewayId}] Heartbeat sent`);
-
-            this.simulateRandomEvents();
+            
+            // Also publish lock statuses periodically for Node-RED dashboard
+            this.publishLockStatuses();
         }, 30000);
-    }
-
-    simulateRandomEvents() {
-        if (Math.random() < 0.1) {
-            const lockIds = Array.from(this.locks.keys());
-            const randomLockId = lockIds[Math.floor(Math.random() * lockIds.length)];
-            const lock = this.locks.get(randomLockId);
-
-            if (lock.status === 'occupied' && Math.random() < 0.3) {
-                lock.status = 'free';
-                lock.vehicleDetected = false;
-                lock.reservation = null;
-                lock.armPosition = 'down';
-                lock.lastUpdate = new Date().toISOString();
-                
-                console.log(`[Gateway ${this.gatewayId}] Simulated vehicle departure from ${randomLockId}`);
-                this.publishLockStatus(randomLockId);
-            }
-        }
     }
 
     disconnect() {

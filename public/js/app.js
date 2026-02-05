@@ -47,6 +47,14 @@ class SmartParkingApp {
             'locate-me': () => this.getUserLocation(),
             'close-location-info': () => document.getElementById('selected-location-info').style.display = 'none',
             'find-nearby': () => { this.switchTab('map'); setTimeout(() => this.getUserLocation(), 500); },
+            'export-lots-csv': () => this.downloadData('/api/export/parking-lots?format=csv', 'parking-lots.csv'),
+            'export-lots-json': () => this.downloadData('/api/export/parking-lots?format=json', 'parking-lots.json'),
+            'export-slots-csv': () => this.downloadData('/api/export/parking-slots?format=csv', 'parking-slots.csv'),
+            'export-slots-json': () => this.downloadData('/api/export/parking-slots?format=json', 'parking-slots.json'),
+            'export-reservations-csv': () => this.downloadData('/api/export/reservations?format=csv&filter=all', 'reservations.csv'),
+            'export-reservations-json': () => this.downloadData('/api/export/reservations?format=json&filter=all', 'reservations.json'),
+            'export-logs-csv': () => this.downloadData('/api/export/system-logs?format=csv', 'system-logs.csv'),
+            'export-logs-json': () => this.downloadData('/api/export/system-logs?format=json', 'system-logs.json'),
         };
 
         Object.entries(elements).forEach(([id, handler]) => {
@@ -176,8 +184,8 @@ class SmartParkingApp {
                     <div class="slot-status ${slot.status}">${slot.status}</div>
                 </div>
                 <div class="slot-info">
-                    <div><i class="fas fa-battery-half"></i> Battery: ${slot.battery_level}%</div>
-                    <div><i class="fas fa-signal"></i> Signal: ${slot.signal_strength}%</div>
+                    <div><i class="fas fa-battery-half"></i> Battery: ${Math.round(slot.battery_level)}%</div>
+                    <div><i class="fas fa-signal"></i> Signal: ${Math.round(slot.signal_strength)}%</div>
                     ${slot.plate_number ? `<div><i class="fas fa-car"></i> ${slot.plate_number}</div>` : ''}
                     ${slot.user_name ? `<div><i class="fas fa-user"></i> ${slot.user_name}</div>` : ''}
                 </div>
@@ -455,6 +463,41 @@ class SmartParkingApp {
     clearMapMarkers() {
         this.mapMarkers.forEach(marker => this.map.removeLayer(marker));
         this.mapMarkers = [];
+    }
+
+    async downloadData(endpoint, defaultFilename) {
+        try {
+            this.showToast('Preparing download...', 'info');
+
+            const response = await fetch(endpoint);
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+            const blob = await response.blob();
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = defaultFilename;
+
+            if (contentDisposition) {
+                const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+                if (matches && matches[1]) {
+                    filename = matches[1].replace(/['"]/g, '');
+                }
+            }
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            this.showToast(`Downloaded ${filename}`, 'success');
+        } catch (error) {
+            console.error('Download failed:', error);
+            this.showToast('Failed to download data', 'error');
+        }
     }
 
     getUserLocation() {

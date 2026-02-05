@@ -29,8 +29,14 @@ A comprehensive IoT parking reservation system with simulated locks and gateways
 - **Parking Management**: Visual slot selection and status
 - **Reservation System**: Complete booking workflow
 - **Real-time Updates**: Live status via WebSockets
-- **Data Export**: CSV/JSON export capabilities
+- **Data Export**: CSV/JSON export capabilities for all data types
 - **System Monitoring**: Logs and sensor data visualization
+
+### Node-RED Integration
+- **Real-time Monitoring**: Visual dashboard with gauges and charts
+- **Alerting System**: Automatic alerts for low battery and weak signals
+- **Data Logging**: Historical MQTT message logging to CSV
+- **Custom Flows**: Extensible monitoring and automation
 
 ### Data Storage & Visualization
 - **In-Memory Storage**: Real-time data storage during runtime
@@ -43,6 +49,7 @@ A comprehensive IoT parking reservation system with simulated locks and gateways
 - **Node.js** (v16 or higher)
 - **npm** (v8 or higher)
 - **Operating System**: Windows 10/11 or Linux (Ubuntu 18.04+)
+- **Node-RED** (optional, for advanced monitoring - installed via npm)
 
 ## 🔧 Installation & Quick Start
 
@@ -54,9 +61,12 @@ npm install
 
 # Start all components at once
 npm run start-system
+
+# OR start with Node-RED monitoring (optional)
+npm run start-system-full
 ```
 
-This will automatically start the MQTT broker, web server, and two gateway simulators.
+This will automatically start the MQTT broker, web server, and two gateway simulators. The `start-system-full` command also starts Node-RED for advanced monitoring.
 
 ### Manual Setup
 If you prefer to start components individually:
@@ -119,7 +129,42 @@ Access the dashboard at: **http://localhost:3000**
 6. The system will detect occupancy
 
 ### Data Export
-Data export functionality is planned for future releases. Currently, data is stored in memory and can be accessed through the web dashboard's monitoring tab.
+Export your data in CSV or JSON format:
+1. Navigate to any tab (Dashboard, Parking, Reservations, Monitoring)
+2. Click the **Export** button for the data you want
+3. Choose **CSV** or **JSON** format
+4. File downloads automatically with timestamp
+
+Available exports:
+- **Parking Lots**: All parking lot information
+- **Parking Slots**: Slot status, battery levels, reservations
+- **Reservations**: All reservations with filtering options
+- **System Logs**: System events and monitoring data
+- **Sensor Data**: Historical sensor readings per lock
+
+### Node-RED Monitoring (Optional)
+For advanced monitoring and alerting:
+
+1. **Install Node-RED** (already installed if you followed setup)
+2. **Start Node-RED**:
+   ```bash
+   npm run start-system-full
+   ```
+3. **Access Node-RED**: http://localhost:1880
+4. **Import Flows**:
+   - Menu (☰) → Import
+   - Select `node-red-flows.json`
+   - Click Deploy
+5. **View Dashboard**: http://localhost:1880/ui
+
+Features:
+- Real-time battery and signal gauges
+- Historical charts
+- Automatic alerts for low battery/signal
+- MQTT message logging to CSV
+- Customizable thresholds
+
+See [NODE-RED-SETUP.md](NODE-RED-SETUP.md) for detailed instructions.
 
 ## 🏗️ Architecture
 
@@ -127,27 +172,32 @@ Data export functionality is planned for future releases. Currently, data is sto
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Web Dashboard │◄──►│   Web Server    │◄──►│   MQTT Broker   │
-│   (Frontend)    │    │   (Backend)     │    │   (Message Bus) │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                        ▲
-                                ▼                        │
-                       ┌─────────────────┐               │
-                       │   SQLite DB     │               │
-                       │   (Data Store)  │               │
-                       └─────────────────┘               │
-                                                         │
-        ┌────────────────────────────────────────────────┼────────────────────────────┐
-        │                                                │                            │
-        ▼                                                ▼                            ▼
-┌─────────────────┐                            ┌─────────────────┐        ┌─────────────────┐
-│   Gateway 001   │                            │   Gateway 002   │        │   Gateway ...   │
-│                 │                            │                 │        │                 │
-├─────────────────┤                            ├─────────────────┤        ├─────────────────┤
-│   Lock 1        │                            │   Lock 1        │        │   Lock 1        │
-│   Lock 2        │                            │   Lock 2        │        │   Lock 2        │
-│   Lock 3        │                            │   Lock 3        │        │   Lock 3        │
-└─────────────────┘                            └─────────────────┘        └─────────────────┘
+│   Web Dashboard │◄──►│   Web Server    │◄──►│   MQTT Broker   │◄──┐
+│   (Frontend)    │    │   (Backend)     │    │   (Message Bus) │   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘   │
+                                │                        ▲           │
+                                ▼                        │           │
+                       ┌─────────────────┐               │           │
+                       │   Memory Store  │               │           │
+                       │   (Data Store)  │               │           │
+                       └─────────────────┘               │           │
+                                                         │           │
+                       ┌─────────────────┐               │           │
+                       │   Node-RED      │◄──────────────┘           │
+                       │   (Monitoring)  │                           │
+                       └─────────────────┘                           │
+                                                                     │
+        ┌────────────────────────────────────────────────────────────┼──────────┐
+        │                                                            │          │
+        ▼                                                            ▼          ▼
+┌─────────────────┐                            ┌─────────────────┐    ┌───────────┐
+│   Gateway 001   │                            │   Gateway 002   │    │  Gateway  │
+│                 │                            │                 │    │    ...    │
+├─────────────────┤                            ├─────────────────┤    └───────────┘
+│   Lock 1        │                            │   Lock 1        │
+│   Lock 2        │                            │   Lock 2        │
+│   Lock 3        │                            │   Lock 3        │
+└─────────────────┘                            └─────────────────┘
 ```
 
 ### MQTT Topics
@@ -182,16 +232,18 @@ Data export functionality is planned for future releases. Currently, data is sto
 ### Project Structure
 ```
 smart-parking-iot/
-├── server.js              # Main web server
-├── mqtt-broker.js          # MQTT message broker
-├── package.json            # Dependencies and scripts
+├── server.js                 # Main web server with export APIs
+├── mqtt-broker.js            # MQTT message broker
+├── package.json              # Dependencies and scripts
+├── node-red-flows.json       # Node-RED flow configuration
+├── NODE-RED-SETUP.md         # Node-RED setup guide
 ├── simulators/
-│   ├── gateway.js         # Gateway simulator
-│   └── lock.js            # Lock simulator with sensors
+│   ├── gateway.js           # Gateway simulator
+│   └── lock.js              # Lock simulator with sensors
 └── public/
-    ├── index.html         # Web dashboard
-    ├── css/style.css      # Styling
-    └── js/app.js          # Frontend JavaScript
+    ├── index.html           # Web dashboard with export buttons
+    ├── css/style.css        # Styling
+    └── js/app.js            # Frontend JavaScript with download
 ```
 
 ### Adding New Features
@@ -274,36 +326,3 @@ netstat -ano | findstr :3000
 - Rate limiting for API endpoints
 - Input validation and sanitization
 - HTTPS for web interface
-
-## 🚀 Future Enhancements
-
-### Planned Features
-- Mobile app integration
-- License plate recognition via camera
-- GPS-based arrival detection
-- Payment system integration
-- Multi-tenant support
-- Cloud deployment options
-
-### Scalability
-- Kubernetes deployment
-- Redis for caching
-- MongoDB for large datasets
-- Load balancing
-- Microservices architecture
-
-## 📞 Support
-
-For issues, questions, or contributions:
-1. Check the troubleshooting section
-2. Review console logs for errors
-3. Create detailed issue reports
-4. Include system information and steps to reproduce
-
-## 📄 License
-
-MIT License - Feel free to use and modify for educational and commercial purposes.
-
----
-
-**Built with ❤️ for IoT 2024-25 Final Project**

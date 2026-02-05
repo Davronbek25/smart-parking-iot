@@ -236,6 +236,188 @@ app.get('/api/sensor-data/:lockId', (req, res) => {
     res.json(data);
 });
 
+// CSV Generator Helper
+const generateCSV = (data) => {
+    if (!data || data.length === 0) return '';
+
+    const headers = Object.keys(data[0]);
+    const escapeCSV = (value) => {
+        if (value === null || value === undefined) return '';
+        const stringValue = String(value);
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+            return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+    };
+
+    const csvRows = [
+        headers.join(','),
+        ...data.map(row => headers.map(header => escapeCSV(row[header])).join(','))
+    ];
+
+    return csvRows.join('\n');
+};
+
+// Export Endpoints
+
+// Export parking lots
+app.get('/api/export/parking-lots', (req, res) => {
+    const format = req.query.format || 'json';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0] + 'Z';
+
+    memoryDB.parkingLots.forEach(lot => updateLotAvailability(lot.id));
+    const data = memoryDB.parkingLots;
+
+    if (format === 'csv') {
+        const csv = generateCSV(data);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="parking-lots-${timestamp}.csv"`);
+        res.send(csv);
+    } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="parking-lots-${timestamp}.json"`);
+        res.json(data);
+    }
+
+    addSystemLog('Data Export', `Parking lots exported as ${format.toUpperCase()}`);
+});
+
+// Export parking slots
+app.get('/api/export/parking-slots', (req, res) => {
+    const format = req.query.format || 'json';
+    const lot_id = req.query.lot_id;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0] + 'Z';
+
+    let slots = lot_id ? memoryDB.parkingSlots.filter(s => s.lot_id === lot_id) : memoryDB.parkingSlots;
+
+    const data = slots.map(slot => {
+        const lot = memoryDB.parkingLots.find(l => l.id === slot.lot_id);
+        const reservation = memoryDB.reservations.find(r => r.slot_id === slot.id && r.status === 'active');
+        return {
+            id: slot.id,
+            lot_id: slot.lot_id,
+            lot_name: lot?.name || 'Unknown',
+            gateway_id: slot.gateway_id,
+            lock_id: slot.lock_id,
+            status: slot.status,
+            battery_level: slot.battery_level,
+            signal_strength: slot.signal_strength,
+            arm_position: slot.arm_position,
+            vehicle_detected: slot.vehicle_detected,
+            plate_number: reservation?.plate_number || '',
+            user_name: reservation?.user_name || '',
+            end_time: reservation?.end_time || '',
+            last_update: slot.last_update
+        };
+    });
+
+    if (format === 'csv') {
+        const csv = generateCSV(data);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="parking-slots-${timestamp}.csv"`);
+        res.send(csv);
+    } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="parking-slots-${timestamp}.json"`);
+        res.json(data);
+    }
+
+    addSystemLog('Data Export', `Parking slots exported as ${format.toUpperCase()}`);
+});
+
+// Export reservations
+app.get('/api/export/reservations', (req, res) => {
+    const format = req.query.format || 'json';
+    const filter = req.query.filter || 'all';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0] + 'Z';
+
+    let filteredReservations = memoryDB.reservations;
+
+    if (filter === 'active') {
+        filteredReservations = memoryDB.reservations.filter(r => r.status === 'active');
+    } else if (filter === 'expired') {
+        filteredReservations = memoryDB.reservations.filter(r => r.status === 'expired' || (r.status === 'active' && new Date() > new Date(r.end_time)));
+    }
+
+    const data = filteredReservations.map(reservation => {
+        const slot = memoryDB.parkingSlots.find(s => s.id === reservation.slot_id);
+        const lot = slot ? memoryDB.parkingLots.find(l => l.id === slot.lot_id) : null;
+        return {
+            id: reservation.id,
+            slot_id: reservation.slot_id,
+            lock_id: slot?.lock_id || 'Unknown',
+            lot_name: lot?.name || 'Unknown',
+            plate_number: reservation.plate_number,
+            user_name: reservation.user_name || '',
+            phone_number: reservation.phone_number || '',
+            start_time: reservation.start_time,
+            end_time: reservation.end_time,
+            status: reservation.status,
+            slot_status: slot?.status || 'unknown',
+            created_at: reservation.created_at
+        };
+    });
+
+    if (format === 'csv') {
+        const csv = generateCSV(data);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="reservations-${timestamp}.csv"`);
+        res.send(csv);
+    } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="reservations-${timestamp}.json"`);
+        res.json(data);
+    }
+
+    addSystemLog('Data Export', `Reservations (${filter}) exported as ${format.toUpperCase()}`);
+});
+
+// Export sensor data for a specific lock
+app.get('/api/export/sensor-data/:lockId', (req, res) => {
+    const { lockId } = req.params;
+    const format = req.query.format || 'json';
+    const hours = req.query.hours || 24;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0] + 'Z';
+
+    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    const data = memoryDB.sensorData.filter(d => d.lock_id === lockId && d.timestamp > cutoffTime);
+
+    if (format === 'csv') {
+        const csv = generateCSV(data);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="sensor-data-${lockId}-${timestamp}.csv"`);
+        res.send(csv);
+    } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="sensor-data-${lockId}-${timestamp}.json"`);
+        res.json(data);
+    }
+
+    addSystemLog('Data Export', `Sensor data for ${lockId} exported as ${format.toUpperCase()}`);
+});
+
+// Export system logs
+app.get('/api/export/system-logs', (req, res) => {
+    const format = req.query.format || 'json';
+    const limit = parseInt(req.query.limit) || 100;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0] + 'Z';
+
+    const data = memoryDB.systemLogs.slice(0, limit);
+
+    if (format === 'csv') {
+        const csv = generateCSV(data);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="system-logs-${timestamp}.csv"`);
+        res.send(csv);
+    } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="system-logs-${timestamp}.json"`);
+        res.json(data);
+    }
+
+    addSystemLog('Data Export', `System logs exported as ${format.toUpperCase()}`);
+});
+
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     socket.on('disconnect', () => console.log('Client disconnected:', socket.id));

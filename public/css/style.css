@@ -82,14 +82,14 @@ body {
     display: block;
 }
 
-.dashboard-header {
+.dashboard-header, .parking-header, .reservations-header, .monitoring-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 2rem;
 }
 
-.dashboard-header h2 {
+.dashboard-header h2, .parking-header h2, .reservations-header h2, .monitoring-header h2 {
     color: white;
     font-size: 2rem;
     font-weight: 300;
@@ -553,7 +553,7 @@ body {
 
 .modal-content {
     background: white;
-    margin: 5% auto;
+    margin: auto;
     border-radius: 15px;
     width: 90%;
     max-width: 500px;
