@@ -13,7 +13,7 @@
     "start-system-full": "concurrently \"npm run broker\" \"npm start\" \"npm run start-gateway gateway_001\" \"npm run start-gateway gateway_002\" \"npm run node-red\""
   },
   "keywords": ["iot", "parking", "mqtt", "nodejs"],
-  "author": "IoT Project Team",
+  "author": "Davronbek Orifjonov",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
